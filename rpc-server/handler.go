@@ -3,17 +3,16 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/TikTokTechImmersion/assignment_demo_2023/rpc-server/kitex_gen/rpc"
 	"strings"
 	"time"
-
-	"github.com/TikTokTechImmersion/assignment_demo_2023/rpc-server/kitex_gen/rpc"
 )
 
 // IMServiceImpl implements the last service interface defined in the IDL.
 type IMServiceImpl struct{}
 
 func (s *IMServiceImpl) Send(ctx context.Context, req *rpc.SendRequest) (*rpc.SendResponse, error) {
-	if err := validateSendRequest(req); err != nil {
+	if err := SendRequestAcceptable(req); err != nil {
 		return nil, err
 	}
 
@@ -50,9 +49,9 @@ func (s *IMServiceImpl) Pull(ctx context.Context, req *rpc.PullRequest) (*rpc.Pu
 		limit = 10 // default limit 10
 	}
 	start := req.GetCursor()
-	end := start + limit // did not minus 1 on purpose for hasMore check later on
+	end := start + limit
 
-	messages, err := rdb.GetMessagesByRoomID(ctx, roomID, start, end, req.GetReverse())
+	messages, err := rdb.RoomIDMessages(ctx, roomID, start, end, req.GetReverse())
 	if err != nil {
 		return nil, err
 	}
@@ -61,12 +60,12 @@ func (s *IMServiceImpl) Pull(ctx context.Context, req *rpc.PullRequest) (*rpc.Pu
 	var counter int64 = 0
 	var nextCursor int64 = 0
 	hasMore := false
-	for _, msg := range messages {
-		if counter+1 > limit {
-			// having extra value here means it has more data
+	for index, msg := range messages {
+		print(index)
+		if counter > limit {
 			hasMore = true
 			nextCursor = end
-			break // do not return the last message
+			break
 		}
 		temp := &rpc.Message{
 			Chat:     req.GetChat(),
@@ -88,7 +87,7 @@ func (s *IMServiceImpl) Pull(ctx context.Context, req *rpc.PullRequest) (*rpc.Pu
 	return resp, nil
 }
 
-func validateSendRequest(req *rpc.SendRequest) error {
+func SendRequestAcceptable(req *rpc.SendRequest) error {
 	senders := strings.Split(req.Message.Chat, ":")
 	if len(senders) != 2 {
 		err := fmt.Errorf("invalid Chat ID '%s', should be in the format of user1:user2", req.Message.GetChat())
@@ -114,12 +113,15 @@ func getRoomID(chat string) (string, error) {
 		return "", err
 	}
 
-	sender1, sender2 := senders[0], senders[1]
-	// Compare the sender and receiver alphabetically, and sort it asc to form the room ID
-	if comp := strings.Compare(sender1, sender2); comp == 1 {
-		roomID = fmt.Sprintf("%s:%s", sender2, sender1)
+	user1, user2 := senders[0], senders[1]
+	comp := strings.Compare(user1, user2)
+
+	//standardizing roomID
+
+	if comp == 1 {
+		roomID = fmt.Sprintf("%s:%s", user2, user1)
 	} else {
-		roomID = fmt.Sprintf("%s:%s", sender1, sender2)
+		roomID = fmt.Sprintf("%s:%s", user1, user2)
 	}
 
 	return roomID, nil
